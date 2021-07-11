@@ -17,8 +17,12 @@ except ModuleNotFoundError:
     import tkinter as tk
     from tkinter import ttk
 
+    """
+    Comguard version
+    """
 this = sys.modules[__name__]  # For holding module globals
-this.VersionNo = "2.2.1"
+this.VersionNo = "1.0.0"
+this.APIKey = ""
 this.FactionNames = []
 this.TodayData = {}
 this.YesterdayData = {}
@@ -40,9 +44,11 @@ def plugin_prefs(parent, cmdr, is_beta):
     Return a TK Frame for adding to the EDMC settings dialog.
     """
     frame = nb.Frame(parent)
-    nb.Label(frame, text="BGS Tally v" + this.VersionNo).grid(column=0, sticky=tk.W)
+    nb.Label(frame, text="BGS Tally / Comguard v" + this.VersionNo).grid(column=0, sticky=tk.W)
     nb.Checkbutton(frame, text="Make BGS Tally Active", variable=this.Status, onvalue="Active",
                    offvalue="Paused").grid()
+    nb.Label(frame, text="Comguard API key").grid(column=0, row=3, sticky=tk.W)
+    APIkey = nb.Entry(frame, textvariable=this.APIKey, width=40).grid(column=1, row=3, sticky=tk.W)
     return frame
 
 
@@ -85,6 +91,7 @@ def plugin_start(plugin_dir):
     this.Status = tk.StringVar(value=config.get_str("XStatus"))
     this.DataIndex = tk.IntVar(value=config.get_int("xIndex"))
     this.StationFaction = tk.StringVar(value=config.get_str("XStation"))
+    this.APIKey = tk.StringVar(value=config.get_str("XAPIKey"))
     response = requests.get('https://api.github.com/repos/tezw21/BGS-Tally/releases/latest')  # check latest version
     latest = response.json()
     this.GitVersion = latest['tag_name']
@@ -116,7 +123,7 @@ def plugin_app(parent):
     Create a frame for the EDMC main window
     """
     this.frame = tk.Frame(parent)
-    Title = tk.Label(this.frame, text="BGS Tally v" + this.VersionNo)
+    Title = tk.Label(this.frame, text="BGS Tally / Comguard v" + this.VersionNo)
     Title.grid(row=0, column=0, sticky=tk.W)
     if version_tuple(this.GitVersion) > version_tuple(this.VersionNo):
         title2 = tk.Label(this.frame, text="New version available", fg="blue", cursor="hand2")
@@ -438,6 +445,7 @@ def save_data():
     config.set('XStatus', this.Status.get())
     config.set('XIndex', this.DataIndex.get())
     config.set('XStation', this.StationFaction.get())
+    config.set('XAPIKey', this.APIKey.get())
     file = os.path.join(this.Dir, "Today Data.txt")
     with open(file, 'w') as outfile:
         json.dump(this.TodayData, outfile)
@@ -447,3 +455,15 @@ def save_data():
     file = os.path.join(this.Dir, "MissionLog.txt")
     with open(file, 'w') as outfile:
         json.dump(this.MissionLog, outfile)
+
+        
+def log_data(data):
+    data = json.loads(json.dumps(data))
+    response = requests.post(
+        url='https://comguard.app/api/event.php',
+        data={
+            "apikey": this.APIKey,
+            "data": data
+        }
+    )
+    print(response)
