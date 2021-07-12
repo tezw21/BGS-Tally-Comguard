@@ -17,6 +17,33 @@ except ModuleNotFoundError:
     import tkinter as tk
     from tkinter import ttk
 
+    import logging
+
+    from config import appname
+
+    # This could also be returned from plugin_start3()
+    plugin_name = os.path.basename(os.path.dirname(__file__))
+
+    # A Logger is used per 'found' plugin to make it easy to include the plugin's
+    # folder name in the logging output format.
+    # NB: plugin_name here *must* be the plugin's folder name as per the preceding
+    #     code, else the logger won't be properly set up.
+    logger = logging.getLogger(f'{appname}.{plugin_name}')
+
+    # If the Logger has handlers then it was already set up by the core code, else
+    # it needs setting up here.
+    if not logger.hasHandlers():
+        level = logging.INFO  # So logger.info(...) is equivalent to print()
+    
+        logger.setLevel(level)
+        logger_channel = logging.StreamHandler()
+        logger_formatter = logging.Formatter(
+            f'%(asctime)s - %(name)s - %(levelname)s - %(module)s:%(lineno)d:%(funcName)s: %(message)s')
+        logger_formatter.default_time_format = '%Y-%m-%d %H:%M:%S'
+        logger_formatter.default_msec_format = '%s.%03d'
+        logger_channel.setFormatter(logger_formatter)
+        logger.addHandler(logger_channel)
+
     """
     Comguard version
     """
@@ -92,9 +119,13 @@ def plugin_start(plugin_dir):
     this.DataIndex = tk.IntVar(value=config.get_int("xIndex"))
     this.StationFaction = tk.StringVar(value=config.get_str("XStation"))
     this.APIKey = tk.StringVar(value=config.get_str("XAPIKey"))
-    response = requests.get('https://api.github.com/repos/tezw21/BGS-Tally/releases/latest')  # check latest version
+    response = requests.get('https://api.github.com/repos/tezw21/BGS-Tally-Comguard/releases/latest')  # check latest version
     latest = response.json()
-    this.GitVersion = latest['tag_name']
+    try:
+        this.GitVersion = latest['tag_name']
+    except KeyError:
+        logger.info('no tag')
+        this.GitVersion = '1.0.0'
     #  tick check and counter reset
     response = requests.get('https://elitebgs.app/api/ebgs/v5/ticks')  # get current tick and reset if changed
     tick = response.json()
@@ -104,7 +135,7 @@ def plugin_start(plugin_dir):
         this.LastTick.set(this.CurrentTick)
         this.YesterdayData = this.TodayData
         this.TodayData = {}
-    return "BGS Tally v2"
+    return "BGS Tally"
 
 
 def plugin_start3(plugin_dir):
@@ -144,6 +175,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
     if this.Status.get() != "Active":
         return
     if entry['event'] in EventList:  # get factions and populate today data
+        log_data(entry)
         this.FactionNames = []
         this.FactionStates = []
         z = 0
@@ -185,6 +217,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
                      'CombatBonds': 0, 'MissionFailed': 0, 'Murdered': 0})
     
     if entry['event'] == 'Docked':  # enter system and faction named
+        log_data(entry)
         this.StationFaction.set(entry['StationFaction']['Name'])  # set controlling faction name
         #  tick check and counter reset
         response = requests.get('https://elitebgs.app/api/ebgs/v5/ticks')  # get current tick and reset if changed
@@ -199,6 +232,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
             theme.update(this.frame)
     
     if entry['event'] == 'MissionCompleted':  # get mission influence value
+        log_data(entry)
         fe = entry['FactionEffects']
         for i in fe:
             fe3 = i['Faction']
@@ -226,6 +260,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
         save_data()
     
     if entry['event'] == 'SellExplorationData' or entry['event'] == "MultiSellExplorationData":  # get carto data value
+        log_data(entry)
         t = len(this.TodayData[this.DataIndex.get()][0]['Factions'])
         for z in range(0, t):
             if this.StationFaction.get() == this.TodayData[this.DataIndex.get()][0]['Factions'][z]['Faction']:
@@ -233,6 +268,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
         save_data()
     
     if entry['event'] == 'RedeemVoucher' and entry['Type'] == 'bounty':  # bounties collected
+        log_data(entry)
         t = len(this.TodayData[this.DataIndex.get()][0]['Factions'])
         for z in entry['Factions']:
             for x in range(0, t):
@@ -241,6 +277,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
         save_data()
     
     if entry['event'] == 'RedeemVoucher' and entry['Type'] == 'CombatBond':  # combat bonds collected
+        log_data(entry)
         print('Combat Bond redeemed')
         t = len(this.TodayData[this.DataIndex.get()][0]['Factions'])
         for x in range(0, t):
@@ -249,6 +286,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
         save_data()
     
     if entry['event'] == 'MarketSell':  # Trade Profit
+        log_data(entry)
         t = len(this.TodayData[this.DataIndex.get()][0]['Factions'])
         for z in range(0, t):
             if this.StationFaction.get() == this.TodayData[this.DataIndex.get()][0]['Factions'][z]['Faction']:
@@ -258,11 +296,13 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
         save_data()
     
     if entry['event'] == 'MissionAccepted':  # mission accpeted
+        log_data(entry)
         this.MissionLog.append({"Name": entry["Name"], "Faction": entry["Faction"], "MissionID": entry["MissionID"],
                                 "System": system})
         save_data()
     
     if entry['event'] == 'MissionFailed':  # mission failed
+        log_data(entry)
         for x in range(len(this.MissionLog)):
             if this.MissionLog[x]["MissionID"] == entry["MissionID"]:
                 for y in this.TodayData:
@@ -275,12 +315,14 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
         save_data()
     
     if entry['event'] == 'MissionAbandoned':
+        log_data(entry)
         for x in range(len(this.MissionLog)):
             if this.MissionLog[x]["MissionID"] == entry["MissionID"]:
                 this.MissionLog.pop(x)
         save_data()
     
     if entry['event'] == 'CommitCrime':
+        log_data(entry)
         if entry['CrimeType'] == 'murder':
             for y in this.TodayData:
                 if system == this.TodayData[y][0]['System']:
@@ -458,12 +500,13 @@ def save_data():
 
         
 def log_data(data):
+    logger.info(this.APIKey)
     data = json.loads(json.dumps(data))
     response = requests.post(
-        url='https://comguard.app/api/event.php',
+        url='https://comguard.app/api/event',
         data={
             "apikey": this.APIKey,
             "data": data
         }
     )
-    print(response)
+    logger.info(response)
