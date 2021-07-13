@@ -505,7 +505,7 @@ def log_data(data):
     response = requests.post(
         url='https://comguard.app/api/event',
         data={
-            "apikey": this.APIKey,
+            "key": this.APIKey,
             "data": data
         }
     )
