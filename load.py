@@ -500,13 +500,12 @@ def save_data():
 
         
 def log_data(data):
-    logger.info(this.APIKey)
-    data = json.loads(json.dumps(data))
-    response = requests.post(
-        url='https://comguard.app/api/event',
-        data={
-            "key": this.APIKey,
-            "data": data
+    payload = {
+        "key": this.APIKey.get(), 
+        "data": data
         }
+    response = requests.post(
+        url = 'https://comguard.app/api/event',
+        json = payload
     )
     logger.info(response)
