@@ -48,7 +48,7 @@ except ModuleNotFoundError:
     Comguard version
     """
 this = sys.modules[__name__]  # For holding module globals
-this.VersionNo = "1.0.0"
+this.VersionNo = "1.1.0"
 this.APIKey = ""
 this.FactionNames = []
 this.TodayData = {}
@@ -119,8 +119,9 @@ def plugin_start(plugin_dir):
     this.DataIndex = tk.IntVar(value=config.get_int("xIndex"))
     this.StationFaction = tk.StringVar(value=config.get_str("XStation"))
     this.APIKey = tk.StringVar(value=config.get_str("XAPIKey"))
-    response = requests.get('https://api.github.com/repos/tezw21/BGS-Tally-Comguard/releases/latest')  # check latest version
+    response = requests.get("https://api.github.com/repos/tezw21/BGS-Tally-Comguard/releases/latest")  # check latest version
     latest = response.json()
+    logger.info(latest)
     try:
         this.GitVersion = latest['tag_name']
     except KeyError:
@@ -175,7 +176,6 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
     if this.Status.get() != "Active":
         return
     if entry['event'] in EventList:  # get factions and populate today data
-        log_data(entry)
         this.FactionNames = []
         this.FactionStates = []
         z = 0
@@ -217,7 +217,6 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
                      'CombatBonds': 0, 'MissionFailed': 0, 'Murdered': 0})
     
     if entry['event'] == 'Docked':  # enter system and faction named
-        log_data(entry)
         this.StationFaction.set(entry['StationFaction']['Name'])  # set controlling faction name
         #  tick check and counter reset
         response = requests.get('https://elitebgs.app/api/ebgs/v5/ticks')  # get current tick and reset if changed
@@ -232,7 +231,6 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
             theme.update(this.frame)
     
     if entry['event'] == 'MissionCompleted':  # get mission influence value
-        log_data(entry)
         fe = entry['FactionEffects']
         for i in fe:
             fe3 = i['Faction']
@@ -245,6 +243,8 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
                         for z in range(0, t):
                             if fe3 == this.TodayData[y][0]['Factions'][z]['Faction']:
                                 this.TodayData[y][0]['Factions'][z]['MissionPoints'] += inf
+                                send_data(entry['timestamp'],entry['event'],entry['Name'],this.TodayData[y][0]['System'],fe3, inf)
+
             else:
                 for p in range(len(this.MissionLog)):
                     if this.MissionLog[p]["MissionID"] == entry["MissionID"]:
@@ -253,6 +253,8 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
                                 for z in range(0, len(this.TodayData[y][0]['Factions'])):
                                     if this.TodayData[y][0]['Factions'][z]['Faction'] == fe3 and entry['Name'] in this.MissionList:
                                         this.TodayData[y][0]['Factions'][z]['MissionPoints'] += 1
+                                        send_data(entry['timestamp'],entry['event'],entry['Name'],this.TodayData[y][0]['System'],fe3, 1)
+
         for count in range(len(this.MissionLog)):
             if this.MissionLog[count]["MissionID"] == entry["MissionID"]:
                 this.MissionLog.pop(count)
@@ -260,49 +262,49 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
         save_data()
     
     if entry['event'] == 'SellExplorationData' or entry['event'] == "MultiSellExplorationData":  # get carto data value
-        log_data(entry)
         t = len(this.TodayData[this.DataIndex.get()][0]['Factions'])
         for z in range(0, t):
             if this.StationFaction.get() == this.TodayData[this.DataIndex.get()][0]['Factions'][z]['Faction']:
                 this.TodayData[this.DataIndex.get()][0]['Factions'][z]['CartData'] += entry['TotalEarnings']
+                send_data(entry['timestamp'], entry['event'], 'null' , system, this.TodayData[this.DataIndex.get()][0]['Factions'][z]['Faction'], entry['TotalEarnings'])
         save_data()
     
     if entry['event'] == 'RedeemVoucher' and entry['Type'] == 'bounty':  # bounties collected
-        log_data(entry)
         t = len(this.TodayData[this.DataIndex.get()][0]['Factions'])
         for z in entry['Factions']:
             for x in range(0, t):
                 if z['Faction'] == this.TodayData[this.DataIndex.get()][0]['Factions'][x]['Faction']:
                     this.TodayData[this.DataIndex.get()][0]['Factions'][x]['Bounties'] += z['Amount']
+                    send_data(entry['timestamp'], entry['event'], entry['Type'], system,
+                              this.TodayData[this.DataIndex.get()][0]['Factions'][x]['Faction'], z['Amount'])
         save_data()
     
     if entry['event'] == 'RedeemVoucher' and entry['Type'] == 'CombatBond':  # combat bonds collected
-        log_data(entry)
-        print('Combat Bond redeemed')
         t = len(this.TodayData[this.DataIndex.get()][0]['Factions'])
         for x in range(0, t):
             if entry['Faction'] == this.TodayData[this.DataIndex.get()][0]['Factions'][x]['Faction']:
                 this.TodayData[this.DataIndex.get()][0]['Factions'][x]['CombatBonds'] += entry['Amount']
+                send_data(entry['timestamp'], entry['event'], entry['Type'], system,
+                          this.TodayData[this.DataIndex.get()][0]['Factions'][x]['Faction'], entry['Amount'])
         save_data()
     
     if entry['event'] == 'MarketSell':  # Trade Profit
-        log_data(entry)
         t = len(this.TodayData[this.DataIndex.get()][0]['Factions'])
         for z in range(0, t):
             if this.StationFaction.get() == this.TodayData[this.DataIndex.get()][0]['Factions'][z]['Faction']:
                 cost = entry['Count'] * entry['AvgPricePaid']
                 profit = entry['TotalSale'] - cost
                 this.TodayData[this.DataIndex.get()][0]['Factions'][z]['TradeProfit'] += profit
+                send_data(entry['timestamp'], entry['event'], 'Null', system,
+                          this.TodayData[this.DataIndex.get()][0]['Factions'][z]['Faction'], profit)
         save_data()
     
     if entry['event'] == 'MissionAccepted':  # mission accpeted
-        log_data(entry)
         this.MissionLog.append({"Name": entry["Name"], "Faction": entry["Faction"], "MissionID": entry["MissionID"],
                                 "System": system})
         save_data()
     
     if entry['event'] == 'MissionFailed':  # mission failed
-        log_data(entry)
         for x in range(len(this.MissionLog)):
             if this.MissionLog[x]["MissionID"] == entry["MissionID"]:
                 for y in this.TodayData:
@@ -310,25 +312,29 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
                         for z in range(0, len(this.TodayData[y][0]['Factions'])):
                             if this.MissionLog[x]['Faction'] == this.TodayData[y][0]['Factions'][z]['Faction']:
                                 this.TodayData[y][0]['Factions'][z]['MissionFailed'] += 1
+                                send_data(entry['timestamp'], entry['event'], 'Null', system,
+                                          this.TodayData[y][0]['Factions'][z]['Faction'],
+                                          1)
                 this.MissionLog.pop(x)
                 break
         save_data()
     
     if entry['event'] == 'MissionAbandoned':
-        log_data(entry)
         for x in range(len(this.MissionLog)):
             if this.MissionLog[x]["MissionID"] == entry["MissionID"]:
                 this.MissionLog.pop(x)
         save_data()
     
     if entry['event'] == 'CommitCrime':
-        log_data(entry)
         if entry['CrimeType'] == 'murder':
             for y in this.TodayData:
                 if system == this.TodayData[y][0]['System']:
                     for z in range(0, len(this.TodayData[y][0]['Factions'])):
                         if entry['Faction'] == this.TodayData[y][0]['Factions'][z]['Faction']:
                             this.TodayData[y][0]['Factions'][z]['Murdered'] += 1
+                            send_data(entry['timestamp'], entry['event'], 'Null ', system,
+                                      this.TodayData[this.DataIndex.get()][0]['Factions'][x]['Faction'],
+                                      entry['Amount'])
 
 
 def version_tuple(version):
@@ -498,14 +504,21 @@ def save_data():
     with open(file, 'w') as outfile:
         json.dump(this.MissionLog, outfile)
 
-        
-def log_data(data):
+def send_data(timestamp,event,type,system,faction,value):
     payload = {
-        "key": this.APIKey.get(), 
-        "data": data
+        "key": this.APIKey.get(),
+        "data": {
+            "timestamp" : timestamp,
+            "event" : event,
+            "type" : type,
+            "system" : system,
+            "faction" : faction,
+            "value" : value
         }
+    }
+    logger.info(payload)
     response = requests.post(
-        url = 'https://comguard.app/api/event',
-        json = payload
+        url='https://comguard.app/api/event',
+        json=payload
     )
     logger.info(response)
