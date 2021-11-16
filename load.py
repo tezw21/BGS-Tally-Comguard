@@ -48,7 +48,7 @@ except ModuleNotFoundError:
     Comguard version
     """
 this = sys.modules[__name__]  # For holding module globals
-this.VersionNo = "1.1.0"
+this.VersionNo = "1.2.0"
 this.APIKey = ""
 this.FactionNames = []
 this.TodayData = {}
@@ -183,6 +183,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
             test = entry['Factions']
         except KeyError:
             return
+        send_data(entry['timestamp'], entry['event'], 'null', entry['StarSystem'], entry['Factions'], entry['SystemAddress'])
         for i in entry['Factions']:
             if i['Name'] != "Pilots' Federation Local Branch":
                 this.FactionNames.append(i['Name'])
@@ -243,7 +244,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
                         for z in range(0, t):
                             if fe3 == this.TodayData[y][0]['Factions'][z]['Faction']:
                                 this.TodayData[y][0]['Factions'][z]['MissionPoints'] += inf
-                                send_data(entry['timestamp'],entry['event'],entry['Name'],this.TodayData[y][0]['System'],fe3, inf)
+                                send_data(entry['timestamp'], entry['event'], entry['Name'], this.TodayData[y][0]['System'], fe3, inf)
 
             else:
                 for p in range(len(this.MissionLog)):
@@ -253,7 +254,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
                                 for z in range(0, len(this.TodayData[y][0]['Factions'])):
                                     if this.TodayData[y][0]['Factions'][z]['Faction'] == fe3 and entry['Name'] in this.MissionList:
                                         this.TodayData[y][0]['Factions'][z]['MissionPoints'] += 1
-                                        send_data(entry['timestamp'],entry['event'],entry['Name'],this.TodayData[y][0]['System'],fe3, 1)
+                                        send_data(entry['timestamp'], entry['event'], entry['Name'], this.TodayData[y][0]['System'], fe3, 1)
 
         for count in range(len(this.MissionLog)):
             if this.MissionLog[count]["MissionID"] == entry["MissionID"]:
@@ -294,9 +295,13 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
             if this.StationFaction.get() == this.TodayData[this.DataIndex.get()][0]['Factions'][z]['Faction']:
                 cost = entry['Count'] * entry['AvgPricePaid']
                 profit = entry['TotalSale'] - cost
+                marketType = 'null'
+                if 'BlackMarket' in entry:
+                    marketType = 'BlackMarket'
+                    profit *= -1  #Black Market is same as a trade loss
                 this.TodayData[this.DataIndex.get()][0]['Factions'][z]['TradeProfit'] += profit
-                send_data(entry['timestamp'], entry['event'], 'Null', system,
-                          this.TodayData[this.DataIndex.get()][0]['Factions'][z]['Faction'], profit)
+                send_data(entry['timestamp'], entry['event'], marketType, system,
+                          this.TodayData[this.DataIndex.get()][0]['Factions'][z]['Faction'], abs(profit))
         save_data()
     
     if entry['event'] == 'MissionAccepted':  # mission accpeted
