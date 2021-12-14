@@ -48,7 +48,7 @@ except ModuleNotFoundError:
     Comguard version
     """
 this = sys.modules[__name__]  # For holding module globals
-this.VersionNo = "1.2.0"
+this.VersionNo = "1.3.0"
 this.APIKey = ""
 this.FactionNames = []
 this.TodayData = {}
@@ -119,24 +119,58 @@ def plugin_start(plugin_dir):
     this.DataIndex = tk.IntVar(value=config.get_int("xIndex"))
     this.StationFaction = tk.StringVar(value=config.get_str("XStation"))
     this.APIKey = tk.StringVar(value=config.get_str("XAPIKey"))
-    response = requests.get("https://api.github.com/repos/tezw21/BGS-Tally-Comguard/releases/latest")  # check latest version
-    latest = response.json()
-    logger.info(latest)
+    try:
+        response = requests.get("https://api.github.com/repos/tezw21/BGS-Tally-Comguard/releases/latest", timeout=5)  # check latest version
+    except requests.exceptions.Timeout:
+        logger.warning('Github request timed out')
+    else:
+        latest = response.json()
+        logger.debug(latest)
     try:
         this.GitVersion = latest['tag_name']
     except KeyError:
         logger.info('no tag')
         this.GitVersion = '1.0.0'
-    #  tick check and counter reset
-    response = requests.get('https://elitebgs.app/api/ebgs/v5/ticks')  # get current tick and reset if changed
-    tick = response.json()
-    this.CurrentTick = tick[0]['_id']
-    this.TickTime = tick[0]['time']
-    if this.LastTick.get() != this.CurrentTick:
-        this.LastTick.set(this.CurrentTick)
-        this.YesterdayData = this.TodayData
-        this.TodayData = {}
+    #  tick check, no counter reset
+    #  App window is not created yet
+    check_tick(0)
     return "BGS Tally"
+
+
+def check_tick(update_frame):
+    #  tick check and counter reset
+    try:
+        response = requests.get('https://elitebgs.app/api/ebgs/v5/ticks', timeout=5)  # get current tick and reset if changed
+    except requests.exceptions.Timeout:
+        logger.warning('Elite BGS tick API timed out')
+    else:
+        tick = response.json()
+        this.CurrentTick = tick[0]['_id']
+        this.TickTime = tick[0]['time']
+        if this.LastTick.get() != this.CurrentTick:
+            logger.info('New tick detected')
+            this.LastTick.set(this.CurrentTick)
+            this.YesterdayData = this.TodayData
+            # Save current system and reset to 0 if applicable
+            try:
+                currentData = this.TodayData[this.DataIndex.get()]
+            except KeyError:
+                logger.info('No data available for curent system')
+                this.TodayData = {} # Old behaviour - DataIndex might need a reset
+                return
+            t = len(currentData[0]['Factions'])
+            for z in range(0, t):
+                factionName = currentData[0]['Factions'][z]['Faction']
+                factionState = currentData[0]['Factions'][z]['FactionState']
+                currentData[0]['Factions'][z] = {'Faction': factionName, 'FactionState': factionState,
+                        'MissionPoints': 0,
+                        'TradeProfit': 0, 'Bounties': 0, 'CartData': 0,
+                        'CombatBonds': 0, 'MissionFailed': 0, 'Murdered': 0}
+            this.DataIndex.set(1)
+            this.TodayData = {1: currentData}
+            if update_frame == 1:
+                this.TimeLabel = tk.Label(this.frame, text=tick_format(this.TickTime)).grid(row=3, column=1, sticky=tk.W)
+                theme.update(this.frame)
 
 
 def plugin_start3(plugin_dir):
@@ -220,16 +254,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
     if entry['event'] == 'Docked':  # enter system and faction named
         this.StationFaction.set(entry['StationFaction']['Name'])  # set controlling faction name
         #  tick check and counter reset
-        response = requests.get('https://elitebgs.app/api/ebgs/v5/ticks')  # get current tick and reset if changed
-        tick = response.json()
-        this.CurrentTick = tick[0]['_id']
-        this.TickTime = tick[0]['time']
-        if this.LastTick.get() != this.CurrentTick:
-            this.LastTick.set(this.CurrentTick)
-            this.YesterdayData = this.TodayData
-            this.TodayData = {}
-            this.TimeLabel = tk.Label(this.frame, text=tick_format(this.TickTime)).grid(row=3, column=1, sticky=tk.W)
-            theme.update(this.frame)
+        check_tick(1)
     
     if entry['event'] == 'MissionCompleted':  # get mission influence value
         fe = entry['FactionEffects']
@@ -238,6 +263,8 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
             if i['Influence'] != []:
                 fe6 = i['Influence'][0]['SystemAddress']
                 inf = len(i['Influence'][0]['Influence'])
+                if i['Influence'][0]['Trend'] == 'DownBad':
+                    inf *= -1
                 for y in this.TodayData:
                     if fe6 == this.TodayData[y][0]['SystemAddress']:
                         t = len(this.TodayData[y][0]['Factions'])
@@ -261,7 +288,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
                 this.MissionLog.pop(count)
                 break
         save_data()
-    
+
     if entry['event'] == 'SellExplorationData' or entry['event'] == "MultiSellExplorationData":  # get carto data value
         t = len(this.TodayData[this.DataIndex.get()][0]['Factions'])
         for z in range(0, t):
@@ -301,7 +328,7 @@ def journal_entry(cmdr, is_beta, system, station, entry, state):
                     profit *= -1  #Black Market is same as a trade loss
                 this.TodayData[this.DataIndex.get()][0]['Factions'][z]['TradeProfit'] += profit
                 send_data(entry['timestamp'], entry['event'], marketType, system,
-                          this.TodayData[this.DataIndex.get()][0]['Factions'][z]['Faction'], abs(profit))
+                          this.TodayData[this.DataIndex.get()][0]['Factions'][z]['Faction'], profit)
         save_data()
     
     if entry['event'] == 'MissionAccepted':  # mission accpeted
@@ -521,9 +548,14 @@ def send_data(timestamp,event,type,system,faction,value):
             "value" : value
         }
     }
-    logger.info(payload)
-    response = requests.post(
-        url='https://comguard.app/api/event',
-        json=payload
-    )
-    logger.info(response)
+    logger.info(payload['data'])
+    try:
+        response = requests.post(
+            url='https://comguard.app/api/event',
+            json=payload,
+            timeout=5
+        )
+    except requests.exceptions.Timeout:
+        logger.warning('Comguard API timed out')
+    else:
+        logger.info(response)
