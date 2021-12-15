@@ -7,6 +7,7 @@ from theme import theme
 import webbrowser
 import os.path
 from os import path
+from copy import deepcopy
 
 try:
     # Python 2
@@ -150,7 +151,7 @@ def check_tick(update_frame):
         if this.LastTick.get() != this.CurrentTick:
             logger.info('New tick detected')
             this.LastTick.set(this.CurrentTick)
-            this.YesterdayData = this.TodayData
+            this.YesterdayData = deepcopy(this.TodayData)
             # Save current system and reset to 0 if applicable
             try:
                 currentData = this.TodayData[this.DataIndex.get()]
